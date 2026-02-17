@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Processing WebGPU - Local Runner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        
+        .chat-bubble { max-width: 80%; padding: 12px 16px; border-radius: 12px; margin-bottom: 12px; line-height: 1.5; word-wrap: break-word; }
+        .user-bubble { background-color: #2563eb; color: white; align-self: flex-end; border-bottom-right-radius: 2px; }
+        .ai-bubble { background-color: #1e293b; border: 1px solid #334155; align-self: flex-start; border-bottom-left-radius: 2px; }
+        .thinking-bubble { font-style: italic; color: #94a3b8; border-left: 2px solid #64748b; padding-left: 10px; margin: 5px 0; font-size: 0.9em; background: #1e293b50; }
+        
+        #progress-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.9); display: none; justify-content: center; align-items: center; z-index: 50; flex-direction: column; }
+        .progress-bar { width: 300px; height: 10px; background: #334155; border-radius: 5px; overflow: hidden; margin-top: 15px; }
+        .progress-fill { height: 100%; background: #3b82f6; width: 0%; transition: width 0.2s; }
+        
+        pre { background: #0f172a; padding: 10px; border-radius: 6px; overflow-x: auto; font-family: 'Courier New', Courier, monospace; border: 1px solid #334155; margin-top: 8px; }
+        code { font-family: 'Courier New', Courier, monospace; background: #0f172a; padding: 2px 4px; border-radius: 3px; }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <header class="bg-slate-900 border-b border-slate-700 p-4 shadow-lg shrink-0">
+        <div class="flex justify-between items-center max-w-5xl mx-auto">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-cyan-400 flex items-center justify-center font-bold text-white">L</div>
+                <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-300">Agentic Processing WebGPU Local</h1>
+            </div>
+            <div class="text-xs text-slate-400" id="status-indicator">● Ready (WebGPU)</div>
+        </div>
+        
+        <div class="max-w-5xl mx-auto mt-4 pt-2 border-t border-slate-800">
+            <details class="group">
+                <summary class="flex cursor-pointer list-none items-center justify-between font-medium text-slate-400 hover:text-slate-200 transition">
+                    <span><i class="fas fa-robot mr-2"></i> Configure AI Task / System Prompt</span>
+                    <span class="transition group-open:rotate-180"><i class="fas fa-chevron-down"></i></span>
+                </summary>
+                <div class="mt-3 text-sm text-slate-300">
+                    <label class="block mb-1 text-slate-500 uppercase text-xs font-bold tracking-wider">System Instruction</label>
+                    <textarea id="system-prompt" rows="2" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-200" placeholder="E.g., You are a strict code reviewer. Only output fixed code.">You are a helpful AI assistant.</textarea>
+                    <div class="mt-2 flex gap-2">
+                        <button onclick="setTemplate('coder')" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-xs">💻 Coder</button>
+                        <button onclick="setTemplate('writer')" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-xs">📝 Writer</button>
+                        <button onclick="setTemplate('analyst')" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-xs">📊 Analyst</button>
+                    </div>
+                </div>
+            </details>
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-4 scroll-smooth" id="chat-container">
+        <div class="max-w-3xl mx-auto flex flex-col gap-2" id="messages">
+            <div class="ai-bubble chat-bubble">
+                <p><strong>System:</strong> Welcome! I am running <strong>LiquidAI LFM2.5-1.2B</strong> entirely in your browser using WebGPU.</p>
+                <p class="text-sm text-slate-400 mt-2">⚠️ The first message will trigger a model download (~1GB). Please be patient.</p>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-slate-900 border-t border-slate-700 p-4 shrink-0">
+        <div class="max-w-3xl mx-auto relative">
+            <form id="chat-form" class="flex gap-2">
+                <textarea id="user-input" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 pl-4 pr-12 focus:ring-2 focus:ring-blue-500 focus:outline-none text-slate-200 resize-none h-14" placeholder="Type a message..." onkeydown="handleEnter(event)"></textarea>
+                <button type="submit" id="send-btn" class="absolute right-2 top-2 bottom-2 bg-blue-600 hover:bg-blue-500 text-white px-4 rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+                <button type="button" id="stop-btn" class="hidden absolute right-16 top-2 bottom-2 bg-red-600 hover:bg-red-500 text-white px-4 rounded-lg font-medium transition" onclick="stopGeneration()">
+                    <i class="fas fa-stop"></i>
+                </button>
+            </form>
+        </div>
+    </footer>
+
+    <div id="progress-container">
+        <div class="text-xl font-bold text-white mb-2" id="progress-text">Initializing WebGPU...</div>
+        <div class="text-sm text-slate-400 mb-4" id="progress-detail">Downloading model weights</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress-bar-fill"></div>
+        </div>
+    </div>
+
+    <script id="worker-code" type="javascript/worker">
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.2.4';
+
+        // Skip local model checks since we are in browser
+        env.allowLocalModels = false;
+        env.useBrowserCache = true;
+
+        // Model Configuration
+        const MODEL_ID = "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"; 
+        
+        let generator = null;
+        let isGenerating = false;
+
+        self.onmessage = async (event) => {
+            const { type, data } = event.data;
+
+            if (type === 'check') {
+                // Just checking if worker is alive
+                self.postMessage({ type: 'ready' });
+            } 
+            else if (type === 'load') {
+                try {
+                    if (!generator) {
+                        self.postMessage({ type: 'status', message: 'Loading model...' });
+                        
+                        // Callback for progress bars
+                        const progressCallback = (info) => {
+                            self.postMessage({ type: 'progress', info });
+                        };
+
+                        generator = await pipeline('text-generation', MODEL_ID, {
+                            device: 'webgpu',
+                            dtype: 'q4', // Quantized for browser efficiency
+                            progress_callback: progressCallback
+                        });
+                        
+                        self.postMessage({ type: 'loaded' });
+                    }
+                } catch (err) {
+                    self.postMessage({ type: 'error', message: err.message });
+                }
+            } 
+            else if (type === 'generate') {
+                if (!generator) {
+                    self.postMessage({ type: 'error', message: 'Model not loaded.' });
+                    return;
+                }
+
+                isGenerating = true;
+                const messages = data.messages;
+
+                try {
+                    // Use the tokenizer's chat template
+                    const prompt = await generator.tokenizer.apply_chat_template(messages, {
+                        add_generation_prompt: true,
+                        tokenize: false
+                    });
+
+                    self.postMessage({ type: 'start' });
+
+                    const output = await generator(prompt, {
+                        max_new_tokens: 1024,
+                        temperature: 0.7,
+                        do_sample: true,
+                        top_k: 40,
+                        
+                        // Callback for streaming tokens
+                        callback_function: (beams) => {
+                            if (!isGenerating) return false; // Stop if requested
+                            
+                            const decodedText = generator.tokenizer.decode(beams[0].output_token_ids, { skip_special_tokens: true });
+                            
+                            // Calculate only the NEW content (simple diff)
+                            // Note: Efficient streaming usually requires decoding only new tokens, 
+                            // but Transformers.js sends full sequence often. We handle this in main thread.
+                            self.postMessage({ 
+                                type: 'update', 
+                                output: decodedText,
+                                tokens: beams[0].output_token_ids.length 
+                            });
+                        }
+                    });
+
+                    self.postMessage({ type: 'complete', output: output[0].generated_text });
+
+                } catch (err) {
+                    self.postMessage({ type: 'error', message: err.message });
+                } finally {
+                    isGenerating = false;
+                }
+            }
+            else if (type === 'interrupt') {
+                isGenerating = false;
+            }
+        };
+    </script>
+
+    <script type="module">
+        // 1. Setup Worker
+        const workerScript = document.getElementById('worker-code').textContent;
+        const blob = new Blob([workerScript], { type: 'application/javascript' });
+        const worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
+
+        // 2. UI References
+        const chatContainer = document.getElementById('messages');
+        const chatForm = document.getElementById('chat-form');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const statusIndicator = document.getElementById('status-indicator');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar-fill');
+        const progressText = document.getElementById('progress-text');
+        const progressDetail = document.getElementById('progress-detail');
+        const systemPromptEl = document.getElementById('system-prompt');
+
+        let messageHistory = [];
+        let modelLoaded = false;
+        let currentAiBubble = null;
+        let currentFullText = ""; // To track streaming
+
+        // 3. Worker Event Handlers
+        worker.onmessage = (e) => {
+            const { type, data, message, info, output } = e.data;
+
+            if (type === 'progress') {
+                // Show progress overlay
+                progressContainer.style.display = 'flex';
+                if (info.status === 'progress') {
+                    const percent = Math.round(info.progress || 0);
+                    progressBar.style.width = percent + '%';
+                    progressDetail.innerText = `${info.file} (${percent}%)`;
+                } else if (info.status === 'done') {
+                    progressDetail.innerText = "Model file loaded.";
+                }
+            }
+            else if (type === 'loaded') {
+                modelLoaded = true;
+                progressContainer.style.display = 'none';
+                statusIndicator.innerText = "● Model Loaded";
+                statusIndicator.classList.replace('text-slate-400', 'text-green-400');
+                
+                // If we were waiting to send a message, send it now
+                if (pendingMessage) {
+                    sendMessage(pendingMessage);
+                    pendingMessage = null;
+                }
+            }
+            else if (type === 'start') {
+                // Create AI bubble
+                const bubble = document.createElement('div');
+                bubble.className = 'ai-bubble chat-bubble';
+                bubble.innerHTML = '<span class="animate-pulse">Thinking...</span>';
+                chatContainer.appendChild(bubble);
+                currentAiBubble = bubble;
+                scrollToBottom();
+                
+                // Toggle buttons
+                sendBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+            }
+            else if (type === 'update') {
+                // Handle streaming text
+                // The worker sends full text of the turn usually, we need to extract just the AI part
+                // Simple heuristic: Remove the system prompt + user prompt from the start
+                // For this simple demo, we rely on the fact that the output includes the prompt, 
+                // so we display everything but format it nice.
+                
+                // Actually, transformers.js text-generation pipeline often returns the FULL string.
+                // We need to strip the input prompt to show only the answer in the bubble.
+                // For this demo, let's just parse the last response part.
+                
+                const response = extractResponse(output);
+                currentAiBubble.innerHTML = parseMarkdown(response);
+                scrollToBottom();
+            }
+            else if (type === 'complete') {
+                const response = extractResponse(output);
+                currentAiBubble.innerHTML = parseMarkdown(response);
+                
+                // Add to history
+                messageHistory.push({ role: "assistant", content: response });
+                
+                // Reset UI
+                sendBtn.classList.remove('hidden');
+                stopBtn.classList.add('hidden');
+                userInput.disabled = false;
+                userInput.focus();
+                scrollToBottom();
+            }
+            else if (type === 'error') {
+                progressContainer.style.display = 'none';
+                alert("Error: " + message);
+                sendBtn.classList.remove('hidden');
+                stopBtn.classList.add('hidden');
+                userInput.disabled = false;
+            }
+        };
+
+        let pendingMessage = null;
+
+        // 4. Helper Functions
+        
+        function extractResponse(fullText) {
+            // This is a naive split. A better way is to keep track of input length.
+            // Since we use apply_chat_template in worker, the model continues from there.
+            // However, transformers.js usually returns the whole sequence.
+            // Let's look for the last "assistant" header if chat template is used.
+            
+            // If the model output includes the prompt, we try to strip it.
+            // Simplified: We know what the user just typed.
+            // But doing this perfectly requires robust token matching. 
+            // For this UI, we will just display what's returned but try to detect the start of the new text.
+            
+            // HACK: For this specific model/pipeline, usually the prompt ends with a specific token or structure.
+            // We will just return the full text for now if we can't find a clean split, 
+            // OR we assume the worker sends accumulative text.
+            
+            // To make it clean: The worker sends `decodedText`. 
+            // Let's assume the worker sends the WHOLE conversation so far.
+            // We only want to display the LAST message content.
+            
+            const parts = fullText.split('<|im_start|>assistant');
+            if (parts.length > 1) {
+                 return parts.pop().replace('<|im_end|>', '').trim();
+            }
+            return fullText; // Fallback
+        }
+
+        // Simple Markdown Parser (Bold, Code blocks, Newlines)
+        function parseMarkdown(text) {
+            let html = text
+                // Escape HTML
+                .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                // Code blocks
+                .replace(/```(\w*)([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
+                // Inline code
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                // Bold
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                // Thinking tags (LFM specific)
+                .replace(/&lt;think&gt;([\s\S]*?)&lt;\/think&gt;/g, '<div class="thinking-bubble">Thinking: $1</div>')
+                // Newlines
+                .replace(/\n/g, '<br>');
+            return html;
+        }
+
+        function scrollToBottom() {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // 5. User Actions
+        
+        window.handleEnter = (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                chatForm.dispatchEvent(new Event('submit'));
+            }
+        };
+
+        window.setTemplate = (type) => {
+            const prompts = {
+                coder: "You are an expert software developer. Provide clear, concise code examples and explain your logic.",
+                writer: "You are a creative writing assistant. Enhance the user's ideas with descriptive language and engaging flow.",
+                analyst: "You are a data analyst. Break down complex information into structured summaries and bullet points."
+            };
+            systemPromptEl.value = prompts[type];
+        };
+
+        window.stopGeneration = () => {
+            worker.postMessage({ type: 'interrupt' });
+            sendBtn.classList.remove('hidden');
+            stopBtn.classList.add('hidden');
+            userInput.disabled = false;
+        };
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            // Add User Bubble
+            const bubble = document.createElement('div');
+            bubble.className = 'user-bubble chat-bubble';
+            bubble.innerText = text;
+            chatContainer.appendChild(bubble);
+            scrollToBottom();
+
+            userInput.value = '';
+            userInput.disabled = true;
+
+            // Prepare Messages
+            // If history is empty, add system prompt
+            let messagesToSend = [];
+            if (messageHistory.length === 0) {
+                const sysPrompt = systemPromptEl.value.trim();
+                if (sysPrompt) {
+                    messagesToSend.push({ role: "system", content: sysPrompt });
+                }
+            }
+            messagesToSend = messagesToSend.concat(messageHistory);
+            messagesToSend.push({ role: "user", content: text });
+
+            // Store for history
+            messageHistory = messagesToSend; // Update our history state with the new user msg
+            
+            if (!modelLoaded) {
+                pendingMessage = messagesToSend; // Queue it
+                worker.postMessage({ type: 'load' }); // Trigger load
+            } else {
+                worker.postMessage({ type: 'generate', data: { messages: messagesToSend } });
+            }
+        });
+
+        // Initialize
+        console.log("App initialized.");
+    </script>
+</body>
+</html>
